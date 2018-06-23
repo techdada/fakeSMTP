@@ -9,6 +9,11 @@ class fakeSMTPSessionList {
                 $this->listener = $listener;
         }
 
+        /**
+         * 
+         * @param socket $socket
+         * @return fakeSMTPSession
+         */
         public function &contains(&$socket) {
                 $session = null;
                 foreach ($this->sessions as &$session) {

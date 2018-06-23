@@ -9,7 +9,6 @@
 
 use techdada\fakeSMTP;
 use techdada\fakeSMTPSession;
-use techdada\fakeSMTPSessionList;
 
 set_time_limit(0);
 declare(ticks = 1);
@@ -19,6 +18,7 @@ require_once '../fakeSMTP.php';
 $fsmtp = new fakeSMTP(2500);
 $fsmtp->listen(function ($data,&$output,fakeSMTPSession $session) {
 	// example callback.
+	echo "$data \n";
 	if (strtoupper($data) == 'MAIL FROM:<SUSPECT@DEVICE.COM>') {
 		echo "Received mail from my device";
 		$session->keepLines(true); // fetches all data for this session
@@ -27,6 +27,6 @@ $fsmtp->listen(function ($data,&$output,fakeSMTPSession $session) {
 	if ($data == '.') {
 		echo "End of mail \n";
 		$received = $session->flushLines();
-		echo $received;
+		//echo $received;
 	}
 });

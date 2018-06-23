@@ -7,7 +7,9 @@ class fakeSMTPSession {
         public $id;
         public $ip;
         public $port;
-	protected $keep = false;
+		protected $expectwhat = false;
+		protected $authenticated = false;
+		protected $keep = false;
 
         public function __construct(&$socket) {
                 socket_getpeername($socket, $ip, $port);
@@ -40,6 +42,41 @@ class fakeSMTPSession {
 	public function new_line(&$data) {
 		if (!$this->keep) return;
 		$this->addData('keep_data',$data."\n");
+	}
+	
+	public function expect($what,$do = null) {
+		if ($do == null) {
+			return ($this->expectwhat == $what);
+		}
+		if ($do) $this->expectwhat = $what;
+		else $this->expectwhat = false;
+	}
+	
+	public function parseUser($b64_user) {
+		if ($this->expect('user')) {
+			if ($user = base64_decode($b64_user)) {
+				$this->user = $user;
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	public function parsePass($b64_pass,&$userlist) {
+		if ($this->expect('pass')) {
+			if ($pass = base64_decode($b64_pass)) {
+				$this->pass = $pass;
+				if (!is_array($userlist)) {
+					return true;
+				} elseif (isset($userlist[$this->user]) && ($userlist[$this->user] == $this->pass) ) {
+					$this->authenticated = true;
+					return true;
+				} else {
+					return false;
+				}
+			}
+		}
+		return false;
 	}
 
 	public function flushLines() {
