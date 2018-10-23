@@ -10,7 +10,7 @@ use Exception;
  * TODO: * add tls transport security
  * * add username/password check
  */
-define ( 'DEBUG_OUT', true );
+define ( 'DEBUG_OUT', false );
 if (! defined ( 'MAX_CLIENTS' ))
 	define ( 'MAX_CLIENTS', 10 );
 if (! defined ( 'BIND_TO' ))
@@ -53,6 +53,7 @@ class fakeSMTP {
 	}
 	public function enableAuth($userlist) {
 		$this->userlist = $userlist;
+		if (DEBUG_OUT) echo "Authentication enabled\n";
 		if ($this->userlist)
 			$this->authentication = true;
 		else
@@ -62,6 +63,7 @@ class fakeSMTP {
 		$this->sock = socket_create ( AF_INET, SOCK_STREAM, SOL_TCP );
 		socket_bind ( $this->sock, $addr, $port ) or die ( 'Could not listen at ' . $addr . ':' . $port . "\n" );
 		if (socket_listen ( $this->sock )) {
+			socket_set_nonblock($this->sock);
 			echo "listening at $addr : $port \n";
 			return true;
 		}
@@ -70,34 +72,44 @@ class fakeSMTP {
 	protected function loopwait(callable $callback) {
 		$newsock = null;
 		$sessions = new fakeSMTPSessionList ( $this->sock );
-		socket_set_nonblock($this->sock);
+		
 		while ( $this->active ) {
 			//list of all sockets:
+			if (DEBUG_OUT) echo "waiting for connection\n";
 			$read = $sessions->getSockList ();
-			
 			$w = array ();
 			$e = array ();
 			// check how many connections with data are active
 			$ready = socket_select ( $read, $w, $e, 5, 5 );
-			if (! $ready > 0)
-				continue; // nothing of interest
+			if (DEBUG_OUT) {
+				echo "waiting for connection $ready\n";
+				var_dump($ready);
+			}
+			
+			//if ($ready == 0)
+				//continue; // nothing of interest
 			
 			$date = date ( 'Y-m-d H:i:s' );
-			
+			if (DEBUG_OUT) echo $sessions->size()." Sessions\n";
 			if ($sessions->full ()) {
 				echo "too many clients\n";
 				continue;
 			}
+			//var_dump($read);
 			if (in_array ( $this->sock, $read )) {
 				if ($newsock = socket_accept ( $this->sock )) {
 					// add the connection to the sessions list
-					$sessions->add ( $newsock );
+					if (!$sessions->add ( $newsock )) {
+						if (DEBUG_OUT) echo "Could not add session to list\n";
+					}
 					
 					socket_write ( $newsock, "220 mosquito SMTP\n" );
 					if (DEBUG_OUT)
-						"Connections: " . $sessions->size () . "\nReady: $ready \n";
+						echo "Connections: " . $sessions->size () . "\nReady: $ready \n";
 					socket_getpeername ( $newsock, $ip, $port );
 					echo "$date connection from $ip at $port \n";
+				} else {
+					if (DEBUG_OUT) echo "Could not establish connection from $ip at $port."; 
 				}
 			} // end if in_array
 			  
@@ -107,7 +119,7 @@ class fakeSMTP {
 			
 			// check for ready connections
 			foreach ( $read as $read_sock ) {
-				
+				//socket_set_option($read_sock,SOL_SOCKET, SO_RCVTIMEO, array("sec"=>5, "usec"=>0));
 				// read until newline or 1024 bytes
 				// socket_read will throw errors when clients get disconnected.
 				// suppress the error messages.
@@ -120,12 +132,19 @@ class fakeSMTP {
 					continue;
 				}
 				$data = trim ( $data );
-				if (! $data)
+				if (! $data) {
+					if (DEBUG_OUT) echo "no data\n";
 					continue;
+				}
 				$output = "";
 				if ($s = $sessions->contains ( $read_sock )) {
 					$s->new_line ( $data );
+				} else {
+					echo "no such session\n";
+					continue;
 				}
+				
+				if (DEBUG_OUT) echo "Waiting: ".sizeof($read)."\n";
 				
 				if ($s->expect ( 'user' )) {
 					if (DEBUG_OUT) echo 'expected user';
@@ -141,40 +160,46 @@ class fakeSMTP {
 						$output = '535 Incorrect authentication data';
 					}
 					$s->expect ( 'pass', false );
-				} else
-					if (DEBUG_OUT) echo 'handle keywords';
-					switch (strtoupper ( substr ( $data, 0, 4 ) )) {
-						case 'EHLO' :
-						case 'HELO' :
-						case 'MAIL' :
-						case 'RCPT' :
+				} else {
+					if (DEBUG_OUT) echo "handle keywords " .substr ( $data, 0, 4). "\n";
+				}
+				switch (strtoupper ( substr ( $data, 0, 4 ) )) {
+					case 'EHLO' :
+					case 'HELO' :
+					case 'MAIL' :
+					case 'RCPT' :
+						$output = '250 OK';
+						break;
+					case 'EXIT' :
+					case 'QUIT' :
+						$output = '221 closing channel';
+						break;
+					case 'DATA' :
+						$output = '354 start mail input';
+						break;
+					default :
+						if ($data == ".")
 							$output = '250 OK';
-							break;
-						case 'EXIT' :
-						case 'QUIT' :
-							$output = '221 closing channel';
-							break;
-						case 'DATA' :
-							$output = '354 start mail input';
-							break;
-						default :
-							if ($data == ".")
-								$output = '250 OK';
-					}
-				if ($s) {
-					$callback ( $data, $output, $s );
 				}
+				//if ($s) {
+				if (DEBUG_OUT) echo "start callback\n";
+				$callback ( $data, $output, $s );
+				if (DEBUG_OUT) echo "returned from callback\n";
+				//}
 				
-				if (DEBUG_OUT) {
+				/*if (DEBUG_OUT) {
 					echo $data . "\n" . $output . "\n";
-				}
+				}*/
+				
 				if ($output)
 					socket_write ( $read_sock, $output . "\n" );
 				if ((substr ( $output, 0, 3 ) == '221') || (substr ( $output, 0, 3 ) == '535')) {
+					if (DEBUG_OUT) echo "Close session $read_sock";
 					$sessions->remove ( $read_sock );
 					socket_close ( $read_sock );
 				}
 			}
+			if (DEBUG_OUT) echo "handle next connection\n";
 		}
 		socket_shutdown($this->sock,2);
 		socket_close($this->sock);

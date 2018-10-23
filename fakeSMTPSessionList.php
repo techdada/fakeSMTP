@@ -15,11 +15,11 @@ class fakeSMTPSessionList {
          * @return fakeSMTPSession
          */
         public function &contains(&$socket) {
-                $session = null;
-                foreach ($this->sessions as &$session) {
-                        if ($session->socket == $socket)
+                if (sizeof($this->sessions) > 0) foreach ($this->sessions as $session) {
+                        if ($session->socket === $socket)
                                 return $session;
                 }
+				$session = false;
                 return $session;
         }
         public function addData(&$socket,$key,$data,$mode='a') {
@@ -29,7 +29,7 @@ class fakeSMTPSessionList {
                 return false;
         }
         public function add(&$socket) {
-
+				/* check if already exists */
                 if (!$this->contains($socket)) {
                         $this->sessions[]=new fakeSMTPSession($socket);
                         return true;
